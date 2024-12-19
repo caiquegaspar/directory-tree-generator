@@ -5,6 +5,9 @@ load_ignore_patterns() {
   local gitignore_file=".gitignore"
   ignored_patterns=()
 
+  # Sempre ignora a pasta .git/
+  ignored_patterns+=(".git/")
+
   if [[ -f "$gitignore_file" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
       # Remove comentários e espaços extras

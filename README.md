@@ -1,6 +1,6 @@
 ### README.md
 
-# Directory Tree Generator Ignoring `.gitignore`
+# Directory Tree Generator
 
 This is a Bash script that generates a directory tree structure of a project, similar to the `tree` command, but with the additional functionality of ignoring files and directories listed in the `.gitignore` file. The generated structure is saved in a file called `my_tree_structure.yml`.
 
