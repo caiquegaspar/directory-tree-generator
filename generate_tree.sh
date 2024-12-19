@@ -1,31 +1,31 @@
 #!/bin/bash
 
-# Carrega os padrões de exclusão do .gitignore
+# Loads the exclusion patterns from .gitignore
 load_ignore_patterns() {
   local gitignore_file=".gitignore"
   ignored_patterns=()
 
-  # Sempre ignora a pasta .git/
+  # Always ignore the .git/ folder
   ignored_patterns+=(".git/")
 
   if [[ -f "$gitignore_file" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
-      # Remove comentários e espaços extras
+      # Remove comments and extra spaces
       line="${line%%#*}" && line=$(echo "$line" | xargs)
       [[ -n "$line" ]] && ignored_patterns+=("$line")
     done <"$gitignore_file"
   fi
 }
 
-# Verifica se uma entrada deve ser ignorada
+# Checks if an entry should be ignored
 is_ignored() {
   local entry="$1"
 
-  # Adiciona barra no final para diretórios
+  # Adds a trailing slash for directories
   [[ -d "$entry" ]] && entry="${entry%/}/"
 
   for pattern in "${ignored_patterns[@]}"; do
-    # Usando fnmatch para correspondência de padrões, como *.log
+    # Uses fnmatch for pattern matching, such as *.log
     if [[ "$entry" == $pattern || "$entry" == */"$pattern" || "$entry" == "$pattern"* ]]; then
       return 0
     fi
@@ -33,7 +33,7 @@ is_ignored() {
   return 1
 }
 
-# Gera a estrutura de uma pasta
+# Generates the structure of a folder
 generate_tree_structure() {
   local dir="$1"
   local indent="$2"
@@ -41,26 +41,26 @@ generate_tree_structure() {
   local dirs=()
   local files=()
 
-  # Lista os itens no diretório atual, incluindo ocultos
+  # Lists the items in the current directory, including hidden ones
   entries=("$dir"/* "$dir"/.*)
 
   for entry in "${entries[@]}"; do
     [[ ! -e "$entry" ]] && continue
     local relative_path="${entry#./}"
 
-    # Ignorar entradas conforme .gitignore
+    # Ignore entries as per .gitignore
     is_ignored "$relative_path" && continue
 
-    # Classifica em diretórios e arquivos
+    # Classifies into directories and files
     [[ -d "$entry" ]] && dirs+=("$entry") || files+=("$entry")
   done
 
-  # Ordena diretórios e arquivos
+  # Sort directories and files
   IFS=$'\n' dirs=($(sort <<<"${dirs[*]}"))
   IFS=$'\n' files=($(sort <<<"${files[*]}"))
   unset IFS
 
-  # Imprime diretórios primeiro
+  # Print directories first
   local total=${#dirs[@]}+${#files[@]}
   for i in "${!dirs[@]}"; do
     local name=$(basename "${dirs[$i]}")
@@ -70,7 +70,7 @@ generate_tree_structure() {
     generate_tree_structure "${dirs[$i]}" "${indent}│   "
   done
 
-  # Depois imprime arquivos
+  # Then print files
   for i in "${!files[@]}"; do
     local name=$(basename "${files[$i]}")
     local prefix="├── "
@@ -79,7 +79,7 @@ generate_tree_structure() {
   done
 }
 
-# Escreve a estrutura no arquivo de saída
+# Writes the structure to the output file
 write_tree_to_file() {
   local output_file="$1"
   >"$output_file"
@@ -87,7 +87,7 @@ write_tree_to_file() {
   generate_tree_structure "." "" >>"$output_file"
 }
 
-# Execução principal
+# Main execution
 main() {
   load_ignore_patterns
   write_tree_to_file "my_tree_structure.yml"
