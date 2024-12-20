@@ -1,6 +1,8 @@
+--- 📁 Project Structure ---
+
 /
 ├── DEVELOPER_GUIDE.md
 ├── generate_tree.sh
 ├── LICENSE
-├── my_tree_structure.yml
+├── project_structure.txt
 └── README.md

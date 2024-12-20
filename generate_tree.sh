@@ -83,14 +83,52 @@ generate_tree_structure() {
 write_tree_to_file() {
   local output_file="$1"
   >"$output_file"
+  echo "--- 📁 Project Structure ---" >>"$output_file"
+  echo '' >>"$output_file" # Add blank line for better readability
   echo "/" >>"$output_file"
   generate_tree_structure "." "" >>"$output_file"
 }
 
-# Main execution
-main() {
-  load_ignore_patterns
-  write_tree_to_file "my_tree_structure.yml"
+# Generates the file contents section
+generate_file_contents() {
+  local output_file="$1"
+  echo "" >>"$output_file"
+  echo "--- 📄 File Contents ---" >>"$output_file"
+  echo "" >>"$output_file"
+
+  # Iterate over the files, excluding ignored ones
+  while IFS= read -r file; do
+    # Skip directories
+    [[ -d "$file" ]] && continue
+
+    # Check if the file should be ignored
+    is_ignored "$file" && continue
+
+    echo "--- File: $file ---" >>"$output_file"
+    echo "" >>"$output_file"
+    cat "$file" >>"$output_file" 2>/dev/null || echo "[Error reading file]" >>"$output_file"
+    echo "" >>"$output_file"
+  done < <(find . -type f ! -path "./.git/*") # Finds files, excluding the .git directory
 }
 
-main
+# Main execution
+main() {
+  local print_content=false
+
+  # Check for "--print-content" parameter
+  if [[ "$1" == "--print-content" ]]; then
+    print_content=true
+    shift # Remove the --print-content argument
+  fi
+
+  # Generate the tree structure
+  load_ignore_patterns
+  write_tree_to_file "project_structure.txt"
+
+  # If "--print-content" was passed, generate file contents
+  if [[ "$print_content" == true ]]; then
+    generate_file_contents "project_structure.txt"
+  fi
+}
+
+main "$@"

@@ -1,8 +1,6 @@
-### DEVELOPER_GUIDE.md
-
 # Developer Guide - Directory Tree Generator
 
-This file explains in detail how the `generate_tree.sh` script works. It is a Bash script that generates a directory tree structure of a project, while ignoring files and folders listed in the `.gitignore` file.
+This document provides an in-depth explanation of how the `generate_tree.sh` script works. It is a Bash script that generates a directory tree structure of a project while ignoring files and folders listed in the `.gitignore` file. Additionally, the script can include the contents of each listed file in the output when the `--print-content` parameter is provided.
 
 ## How the Script Works
 
@@ -105,9 +103,36 @@ generate_tree_structure() {
 - **Ignores files and directories**: Before adding a file or directory to the tree, the script checks if it should be ignored based on the `.gitignore` file.
 - **Displays the tree structure**: For each directory and file, the script prints the name with an appropriate prefix to indicate its level in the tree (using the symbols `├──` and `└──`).
 
-### 4. **Writing the Structure to the Output File**
+### 4. **Generating File Contents (Optional)**
 
-The `write_tree_to_file` function creates a file called `my_tree_structure.yml` and writes the generated structure to it.
+The `generate_file_contents` function is responsible for appending the contents of each file in the directory structure to the output file, if the `--print-content` parameter is provided.
+
+```bash
+generate_file_contents() {
+  local output_file="$1"
+  echo "" >>"$output_file"
+  echo "--- 📄 File Contents ---" >>"$output_file"
+  echo "" >>"$output_file"
+
+  while IFS= read -r file; do
+    [[ -d "$file" ]] && continue
+
+    echo "--- File: $file ---" >>"$output_file"
+    echo "" >>"$output_file"
+    cat "$file" >>"$output_file" 2>/dev/null || echo "[Error reading file]" >>"$output_file"
+    echo "" >>"$output_file"
+  done < <(find . -type f ! -path "./.git/*")
+}
+```
+
+#### What the code does:
+
+- **Iterates through files**: The function reads each file in the directory structure.
+- **Appends file contents**: For each file, it appends its contents to the output file. If there is an error reading the file (e.g., permission issues), it appends a message stating `[Error reading file]`.
+
+### 5. **Writing the Structure to the Output File**
+
+The `write_tree_to_file` function creates a file called `project_structure.txt` and writes the generated structure to it.
 
 ```bash
 write_tree_to_file() {
@@ -121,22 +146,34 @@ write_tree_to_file() {
 #### What the code does:
 
 - **Creates or clears the output file**: If the file already exists, it is cleared before being rewritten.
-- **Writes the structure**: The generated directory structure is appended to the `my_tree_structure.yml` file.
+- **Writes the structure**: The generated directory structure is appended to the `project_structure.txt` file.
 
-### 5. **Main Execution**
+### 6. **Main Execution**
 
-The `main` function is responsible for loading the `.gitignore` patterns and calling the functions that generate and write the tree structure.
+The `main` function is responsible for loading the `.gitignore` patterns and calling the functions that generate and write the tree structure, along with appending the file contents if requested.
 
 ```bash
 main() {
+  local print_content=false
+
+  if [[ "$1" == "--print-content" ]]; then
+    print_content=true
+    shift # Remove the --print-content argument
+  fi
+
   load_ignore_patterns
-  write_tree_to_file "my_tree_structure.yml"
+  write_tree_to_file "project_structure.txt"
+
+  if [[ "$print_content" == true ]]; then
+    generate_file_contents "project_structure.txt"
+  fi
 }
 
-main
+main "$@"
 ```
 
 #### What the code does:
 
-- **Loads the `.gitignore` patterns**: The `load_ignore_patterns` function is called to load the exclusion patterns.
-- **Writes the structure**: The `write_tree_to_file` function is called to generate and save the directory tree structure to the output file.
+- **Checks for `--print-content`**: The script checks if the `--print-content` argument is passed. If so, it will generate file contents and append them to the output.
+- **Generates and writes the tree structure**: The `write_tree_to_file` function is called to generate and save the directory tree structure to the output file.
+- **Generates file contents (optional)**: If the `--print-content` flag was passed, the `generate_file_contents` function is called to append the file contents to the output file.
