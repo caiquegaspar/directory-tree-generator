@@ -97,18 +97,19 @@ generate_file_contents() {
   echo "" >>"$output_file"
 
   # Iterate over the files, excluding ignored ones
-  while IFS= read -r file; do
-    # Skip directories
-    [[ -d "$file" ]] && continue
+  find . -type f ! -path "./.git/*" | while IFS= read -r file; do
+    # Remove leading './' for consistency
+    local relative_file="${file#./}"
 
-    # Check if the file should be ignored
-    is_ignored "$file" && continue
+    # Check if the file or its directory should be ignored
+    is_ignored "$relative_file" && continue
 
-    echo "--- File: $file ---" >>"$output_file"
+    echo "--- File: $relative_file ---" >>"$output_file"
     echo "" >>"$output_file"
     cat "$file" >>"$output_file" 2>/dev/null || echo "[Error reading file]" >>"$output_file"
     echo "" >>"$output_file"
-  done < <(find . -type f ! -path "./.git/*") # Finds files, excluding the .git directory
+    echo "" >>"$output_file"
+  done
 }
 
 # Main execution

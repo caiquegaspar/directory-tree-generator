@@ -1,8 +1,539 @@
 --- 📁 Project Structure ---
 
 /
+├── .gitignore
 ├── DEVELOPER_GUIDE.md
 ├── generate_tree.sh
 ├── LICENSE
 ├── project_structure.txt
 └── README.md
+
+--- 📄 File Contents ---
+
+--- File: .gitignore ---
+
+node_modules/
+
+--- File: DEVELOPER_GUIDE.md ---
+
+# Developer Guide - Directory Tree Generator
+
+This document provides an in-depth explanation of how the `generate_tree.sh` script works. It is a Bash script that generates a directory tree structure of a project while ignoring files and folders listed in the `.gitignore` file. Additionally, the script can include the contents of each listed file in the output when the `--print-content` parameter is provided.
+
+## How the Script Works
+
+### 1. **Loading Exclusion Patterns from `.gitignore`**
+
+The `load_ignore_patterns` function is responsible for loading all the exclusion patterns defined in the `.gitignore` file. The `.gitignore` file is used to list files and folders that should not be tracked by Git. The script reads this file and stores the exclusion patterns to be used later when checking which files and directories should be ignored in the tree generation.
+
+```bash
+load_ignore_patterns() {
+  local gitignore_file=".gitignore"
+  ignored_patterns=()
+
+  if [[ -f "$gitignore_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      line="${line%%#*}" && line=$(echo "$line" | xargs)
+      [[ -n "$line" ]] && ignored_patterns+=("$line")
+    done < "$gitignore_file"
+  fi
+}
+```
+
+#### What the code does:
+
+- **Reads the `.gitignore` file**: The script opens and reads each line of the `.gitignore` file, ignoring blank lines and comments.
+- **Stores exclusion patterns**: Valid lines (without comments) are added to an array called `ignored_patterns`, which will be used later to check if a file or directory should be ignored.
+
+### 2. **Checking if an Entry Should Be Ignored**
+
+The `is_ignored` function takes a file or directory path and checks if it should be ignored by comparing it with the exclusion patterns loaded earlier.
+
+```bash
+is_ignored() {
+  local entry="$1"
+  [[ -d "$entry" ]] && entry="${entry%/}/"
+
+  for pattern in "${ignored_patterns[@]}"; do
+    if [[ "$entry" == $pattern || "$entry" == */"$pattern" || "$entry" == "$pattern"* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+```
+
+#### What the code does:
+
+- **Checks if it's a directory**: If the entry is a directory, a slash (`/`) is added at the end to differentiate it from a file.
+- **Checks the exclusion patterns**: For each pattern in the `.gitignore` file, it checks if the entry path matches the pattern.
+  - If it matches, the function returns `0`, indicating that the entry should be ignored.
+  - If it doesn't match, the function returns `1`, indicating that the entry should not be ignored.
+
+### 3. **Generating the Directory Tree Structure**
+
+The `generate_tree_structure` function iterates through directories and files and generates a hierarchical tree structure. The structure is displayed with indentation to indicate the levels of subdirectories.
+
+```bash
+generate_tree_structure() {
+  local dir="$1"
+  local indent="$2"
+  local entries
+  local dirs=()
+  local files=()
+
+  entries=("$dir"/* "$dir"/.*)
+
+  for entry in "${entries[@]}"; do
+    [[ ! -e "$entry" ]] && continue
+    local relative_path="${entry#./}"
+
+    is_ignored "$relative_path" && continue
+
+    [[ -d "$entry" ]] && dirs+=("$entry") || files+=("$entry")
+  done
+
+  IFS=$'\n' dirs=($(sort <<<"${dirs[*]}"))
+  IFS=$'\n' files=($(sort <<<"${files[*]}"))
+  unset IFS
+
+  local total=${#dirs[@]}+${#files[@]}
+  for i in "${!dirs[@]}"; do
+    local name=$(basename "${dirs[$i]}")
+    local prefix="├── "
+    [[ $((i + 1)) -eq $total ]] && prefix="└── "
+    echo "${indent}${prefix}${name}/"
+    generate_tree_structure "${dirs[$i]}" "${indent}│   "
+  done
+
+  for i in "${!files[@]}"; do
+    local name=$(basename "${files[$i]}")
+    local prefix="├── "
+    [[ $((i + 1 + ${#dirs[@]})) -eq $total ]] && prefix="└── "
+    echo "${indent}${prefix}${name}"
+  done
+}
+```
+
+#### What the code does:
+
+- **Lists files and directories**: The script lists files and directories in the current directory, including hidden files (those starting with a dot).
+- **Ignores files and directories**: Before adding a file or directory to the tree, the script checks if it should be ignored based on the `.gitignore` file.
+- **Displays the tree structure**: For each directory and file, the script prints the name with an appropriate prefix to indicate its level in the tree (using the symbols `├──` and `└──`).
+
+### 4. **Generating File Contents (Optional)**
+
+The `generate_file_contents` function is responsible for appending the contents of each file in the directory structure to the output file, if the `--print-content` parameter is provided.
+
+```bash
+generate_file_contents() {
+  local output_file="$1"
+  echo "" >>"$output_file"
+  echo "--- 📄 File Contents ---" >>"$output_file"
+  echo "" >>"$output_file"
+
+  while IFS= read -r file; do
+    [[ -d "$file" ]] && continue
+
+    echo "--- File: $file ---" >>"$output_file"
+    echo "" >>"$output_file"
+    cat "$file" >>"$output_file" 2>/dev/null || echo "[Error reading file]" >>"$output_file"
+    echo "" >>"$output_file"
+  done < <(find . -type f ! -path "./.git/*")
+}
+```
+
+#### What the code does:
+
+- **Iterates through files**: The function reads each file in the directory structure.
+- **Appends file contents**: For each file, it appends its contents to the output file. If there is an error reading the file (e.g., permission issues), it appends a message stating `[Error reading file]`.
+
+### 5. **Writing the Structure to the Output File**
+
+The `write_tree_to_file` function creates a file called `project_structure.txt` and writes the generated structure to it.
+
+```bash
+write_tree_to_file() {
+  local output_file="$1"
+  > "$output_file"
+  echo "/" >> "$output_file"
+  generate_tree_structure "." "" >> "$output_file"
+}
+```
+
+#### What the code does:
+
+- **Creates or clears the output file**: If the file already exists, it is cleared before being rewritten.
+- **Writes the structure**: The generated directory structure is appended to the `project_structure.txt` file.
+
+### 6. **Main Execution**
+
+The `main` function is responsible for loading the `.gitignore` patterns and calling the functions that generate and write the tree structure, along with appending the file contents if requested.
+
+```bash
+main() {
+  local print_content=false
+
+  if [[ "$1" == "--print-content" ]]; then
+    print_content=true
+    shift # Remove the --print-content argument
+  fi
+
+  load_ignore_patterns
+  write_tree_to_file "project_structure.txt"
+
+  if [[ "$print_content" == true ]]; then
+    generate_file_contents "project_structure.txt"
+  fi
+}
+
+main "$@"
+```
+
+#### What the code does:
+
+- **Checks for `--print-content`**: The script checks if the `--print-content` argument is passed. If so, it will generate file contents and append them to the output.
+- **Generates and writes the tree structure**: The `write_tree_to_file` function is called to generate and save the directory tree structure to the output file.
+- **Generates file contents (optional)**: If the `--print-content` flag was passed, the `generate_file_contents` function is called to append the file contents to the output file.
+
+
+--- File: generate_tree.sh ---
+
+#!/bin/bash
+
+# Loads the exclusion patterns from .gitignore
+load_ignore_patterns() {
+  local gitignore_file=".gitignore"
+  ignored_patterns=()
+
+  # Always ignore the .git/ folder
+  ignored_patterns+=(".git/")
+
+  if [[ -f "$gitignore_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      # Remove comments and extra spaces
+      line="${line%%#*}" && line=$(echo "$line" | xargs)
+      [[ -n "$line" ]] && ignored_patterns+=("$line")
+    done <"$gitignore_file"
+  fi
+}
+
+# Checks if an entry should be ignored
+is_ignored() {
+  local entry="$1"
+
+  # Adds a trailing slash for directories
+  [[ -d "$entry" ]] && entry="${entry%/}/"
+
+  for pattern in "${ignored_patterns[@]}"; do
+    # Uses fnmatch for pattern matching, such as *.log
+    if [[ "$entry" == $pattern || "$entry" == */"$pattern" || "$entry" == "$pattern"* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Generates the structure of a folder
+generate_tree_structure() {
+  local dir="$1"
+  local indent="$2"
+  local entries
+  local dirs=()
+  local files=()
+
+  # Lists the items in the current directory, including hidden ones
+  entries=("$dir"/* "$dir"/.*)
+
+  for entry in "${entries[@]}"; do
+    [[ ! -e "$entry" ]] && continue
+    local relative_path="${entry#./}"
+
+    # Ignore entries as per .gitignore
+    is_ignored "$relative_path" && continue
+
+    # Classifies into directories and files
+    [[ -d "$entry" ]] && dirs+=("$entry") || files+=("$entry")
+  done
+
+  # Sort directories and files
+  IFS=$'\n' dirs=($(sort <<<"${dirs[*]}"))
+  IFS=$'\n' files=($(sort <<<"${files[*]}"))
+  unset IFS
+
+  # Print directories first
+  local total=${#dirs[@]}+${#files[@]}
+  for i in "${!dirs[@]}"; do
+    local name=$(basename "${dirs[$i]}")
+    local prefix="├── "
+    [[ $((i + 1)) -eq $total ]] && prefix="└── "
+    echo "${indent}${prefix}${name}/"
+    generate_tree_structure "${dirs[$i]}" "${indent}│   "
+  done
+
+  # Then print files
+  for i in "${!files[@]}"; do
+    local name=$(basename "${files[$i]}")
+    local prefix="├── "
+    [[ $((i + 1 + ${#dirs[@]})) -eq $total ]] && prefix="└── "
+    echo "${indent}${prefix}${name}"
+  done
+}
+
+# Writes the structure to the output file
+write_tree_to_file() {
+  local output_file="$1"
+  >"$output_file"
+  echo "--- 📁 Project Structure ---" >>"$output_file"
+  echo '' >>"$output_file" # Add blank line for better readability
+  echo "/" >>"$output_file"
+  generate_tree_structure "." "" >>"$output_file"
+}
+
+# Generates the file contents section
+generate_file_contents() {
+  local output_file="$1"
+  echo "" >>"$output_file"
+  echo "--- 📄 File Contents ---" >>"$output_file"
+  echo "" >>"$output_file"
+
+  # Iterate over the files, excluding ignored ones
+  find . -type f ! -path "./.git/*" | while IFS= read -r file; do
+    # Remove leading './' for consistency
+    local relative_file="${file#./}"
+
+    # Check if the file or its directory should be ignored
+    is_ignored "$relative_file" && continue
+
+    echo "--- File: $relative_file ---" >>"$output_file"
+    echo "" >>"$output_file"
+    cat "$file" >>"$output_file" 2>/dev/null || echo "[Error reading file]" >>"$output_file"
+    echo "" >>"$output_file"
+    echo "" >>"$output_file"
+  done
+}
+
+# Main execution
+main() {
+  local print_content=false
+
+  # Check for "--print-content" parameter
+  if [[ "$1" == "--print-content" ]]; then
+    print_content=true
+    shift # Remove the --print-content argument
+  fi
+
+  # Generate the tree structure
+  load_ignore_patterns
+  write_tree_to_file "project_structure.txt"
+
+  # If "--print-content" was passed, generate file contents
+  if [[ "$print_content" == true ]]; then
+    generate_file_contents "project_structure.txt"
+  fi
+}
+
+main "$@"
+
+
+--- File: LICENSE ---
+
+MIT License
+
+Copyright (c) 2024 Caíque Gaspar
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+--- File: project_structure.txt ---
+
+[Error reading file]
+
+
+--- File: README.md ---
+
+# Directory Tree Generator
+
+This is a Bash script that generates a directory tree structure of a project, similar to the `tree` command, but with the additional functionality of ignoring files and directories listed in the `.gitignore` file. The generated structure is saved in a file called `project_structure.txt`. Additionally, you can optionally include the contents of the listed files in the output.
+
+## Features
+
+- **Ignores files and directories**: The script ignores files and folders specified in the `.gitignore`.
+- **Generates directory tree**: It creates a hierarchical directory structure.
+- **Output to file**: The generated structure is saved to `project_structure.txt`.
+- **File contents (optional)**: With the `--print-content` parameter, the contents of each file in the directory structure are appended to the output file.
+
+## How to Use
+
+### Prerequisites
+
+- The script is written in Bash, so you need to have a Bash environment, such as Linux, macOS, or Git Bash on Windows.
+- The `.gitignore` file must be present in the root directory of your project with the files and directories you want to ignore.
+
+### Steps
+
+1. Place the `generate_tree.sh` script in the root directory of your project.
+2. Run the script:
+
+   ```bash
+   chmod +x generate_tree.sh
+
+   ./generate_tree.sh
+   ```
+
+3. The generated structure will be saved in `project_structure.txt`. If you want to include file contents, use the `--print-content` argument:
+
+   ```bash
+   ./generate_tree.sh --print-content
+   ```
+
+   This will append the contents of each file listed in the directory structure to the `project_structure.txt`.
+
+### Example Output
+
+#### Without `--print-content`
+
+After running the script, the `project_structure.txt` file will contain a directory structure similar to the following:
+
+```
+--- 📁 Project Structure ---
+
+/
+├── .github/
+│   └── workflows/
+│       └── docker-image.yml
+├── docker/
+│   ├── Dockerfile
+│   └── start.sh
+├── prisma/
+│   ├── migrations/
+│   │   └── 0001_initial/
+│   │   │   └── migration.sql
+│   └── schema.prisma
+...
+```
+
+#### With `--print-content`
+
+If you run the script with the `--print-content` parameter, the contents of the files will be appended to the file:
+
+```
+--- 📁 Project Structure ---
+
+/
+├── .github/
+│   └── workflows/
+│       └── docker-image.yml
+├── docker/
+│   ├── Dockerfile
+│   └── start.sh
+├── prisma/
+│   ├── migrations/
+│   │   └── 0001_initial/
+│   │   │   └── migration.sql
+│   └── schema.prisma
+...
+
+--- 📄 File Contents ---
+
+--- File: .github/workflows/docker-image.yml ---
+
+name: Docker Image CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        run: docker buildx build --file docker/Dockerfile --tag my-project-image:${{ github.sha }} --tag my-project-image:latest --load .
+
+--- File: docker/Dockerfile ---
+
+FROM node:18-alpine AS builder
+
+RUN apk add --no-cache \
+    bash \
+    libstdc++ \
+    openssl \
+    libc6-compat
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+RUN npm run prisma:generate
+RUN npm run build
+
+FROM node:18-alpine
+
+RUN apk add --no-cache \
+    bash \
+    libstdc++ \
+    openssl \
+    libc6-compat
+
+WORKDIR /app
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/prisma ./prisma
+COPY docker/start.sh ./start.sh
+
+RUN chmod +x ./start.sh
+
+EXPOSE 3000
+
+CMD ["./start.sh"]
+```
+
+## How the Code Works
+
+1. **Loading `.gitignore` patterns**: The script loads exclusion patterns from the `.gitignore`.
+2. **Exclusion check**: It compares each file and directory against the exclusion patterns to decide whether to ignore it.
+3. **Generating the directory structure**: The script generates a hierarchical tree structure of the directories and files.
+4. **Saving the structure**: The generated structure is saved to a file called `project_structure.txt`.
+5. **Generating file contents (optional)**: If the `--print-content` parameter is passed, the script appends the content of each file to the output file.
+
+## Contributing
+
+Contributions are welcome! Feel free to open an issue or submit a pull request.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+
