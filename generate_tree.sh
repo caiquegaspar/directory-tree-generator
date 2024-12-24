@@ -1,19 +1,30 @@
 #!/bin/bash
 
-# Loads the exclusion patterns from .gitignore
+# Loads the exclusion patterns from .gitignore and .generatetreeignore (if exists)
 load_ignore_patterns() {
   local gitignore_file=".gitignore"
+  local generatetreeignore_file=".generatetreeignore"
   ignored_patterns=()
 
   # Always ignore the .git/ folder
   ignored_patterns+=(".git/")
 
+  # Load patterns from .gitignore
   if [[ -f "$gitignore_file" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
       # Remove comments and extra spaces
       line="${line%%#*}" && line=$(echo "$line" | xargs)
       [[ -n "$line" ]] && ignored_patterns+=("$line")
     done <"$gitignore_file"
+  fi
+
+  # Load patterns from .generatetreeignore (if exists)
+  if [[ -f "$generatetreeignore_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      # Remove comments and extra spaces
+      line="${line%%#*}" && line=$(echo "$line" | xargs)
+      [[ -n "$line" ]] && ignored_patterns+=("$line")
+    done <"$generatetreeignore_file"
   fi
 }
 
@@ -48,7 +59,7 @@ generate_tree_structure() {
     [[ ! -e "$entry" ]] && continue
     local relative_path="${entry#./}"
 
-    # Ignore entries as per .gitignore
+    # Ignore entries as per .gitignore and .generatetreeignore
     is_ignored "$relative_path" && continue
 
     # Classifies into directories and files
