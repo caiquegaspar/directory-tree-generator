@@ -1,20 +1,21 @@
 # Directory Tree Generator
 
-This is a Bash script that generates a directory tree structure of a project, similar to the `tree` command, but with the additional functionality of ignoring files and directories listed in the `.gitignore` file. The generated structure is saved in a file called `project_structure.txt`. Additionally, you can optionally include the contents of the listed files in the output.
+This is a Bash script that generates a directory tree structure of a project, similar to the `tree` command, but with enhanced functionality. It respects files and directories listed in `.gitignore` and `.generatetreeignore`. The generated structure is saved in a file called `project_structure.txt`. Additionally, you can optionally include the contents of the listed files in the output.
 
 ## Features
 
-- **Ignores files and directories**: The script ignores files and folders specified in the `.gitignore`.
-- **Generates directory tree**: It creates a hierarchical directory structure.
-- **Output to file**: The generated structure is saved to `project_structure.txt`.
-- **File contents (optional)**: With the `--print-content` parameter, the contents of each file in the directory structure are appended to the output file.
+- **Ignores files and directories**: Respects patterns specified in `.gitignore` and `.generatetreeignore`.
+- **Custom ignore rules**: Allows additional exclusion rules via `.generatetreeignore`.
+- **Generates directory tree**: Creates a hierarchical directory structure.
+- **Output to file**: Saves the generated structure to `project_structure.txt`.
+- **File contents (optional)**: Includes the contents of each file in the directory structure with the `--print-content` parameter.
 
 ## How to Use
 
 ### Prerequisites
 
-- The script is written in Bash, so you need to have a Bash environment, such as Linux, macOS, or Git Bash on Windows.
-- The `.gitignore` file must be present in the root directory of your project with the files and directories you want to ignore.
+- Bash environment (Linux, macOS, or Git Bash on Windows).
+- A `.gitignore` or `.generatetreeignore` file to define ignored files and directories (optional).
 
 ### Steps
 
@@ -27,19 +28,33 @@ This is a Bash script that generates a directory tree structure of a project, si
    ./generate_tree.sh
    ```
 
-3. The generated structure will be saved in `project_structure.txt`. If you want to include file contents, use the `--print-content` argument:
+3. The generated structure will be saved in `project_structure.txt`. To include file contents, use the `--print-content` argument:
 
    ```bash
    ./generate_tree.sh --print-content
    ```
 
-   This will append the contents of each file listed in the directory structure to the `project_structure.txt`.
+### Using `.generatetreeignore`
+
+To add custom exclusions beyond `.gitignore`, create a `.generatetreeignore` file in the root of your project. The syntax is the same as `.gitignore`.
+
+#### Example `.generatetreeignore` File:
+
+```bash
+# Ignore all `.log` files
+*.log
+
+# Ignore specific folders
+/temp/
+```
+
+Patterns in `.generatetreeignore` will be processed in addition to `.gitignore`.
 
 ### Example Output
 
 #### Without `--print-content`
 
-After running the script, the `project_structure.txt` file will contain a directory structure similar to the following:
+The `project_structure.txt` file will contain a directory structure similar to:
 
 ```
 --- 📁 Project Structure ---
@@ -61,7 +76,7 @@ After running the script, the `project_structure.txt` file will contain a direct
 
 #### With `--print-content`
 
-If you run the script with the `--print-content` parameter, the contents of the files will be appended to the file:
+Running the script with `--print-content` will append the contents of each file listed in the structure:
 
 ```
 --- 📁 Project Structure ---
@@ -107,56 +122,29 @@ jobs:
 
       - name: Build Docker Image
         run: docker buildx build --file docker/Dockerfile --tag my-project-image:${{ github.sha }} --tag my-project-image:latest --load .
-
---- File: docker/Dockerfile ---
-
-FROM node:18-alpine AS builder
-
-RUN apk add --no-cache \
-    bash \
-    libstdc++ \
-    openssl \
-    libc6-compat
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm install
-
-COPY . .
-RUN npm run prisma:generate
-RUN npm run build
-
-FROM node:18-alpine
-
-RUN apk add --no-cache \
-    bash \
-    libstdc++ \
-    openssl \
-    libc6-compat
-
-WORKDIR /app
-
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/prisma ./prisma
-COPY docker/start.sh ./start.sh
-
-RUN chmod +x ./start.sh
-
-EXPOSE 3000
-
-CMD ["./start.sh"]
 ```
 
-## How the Code Works
+## How It Works
 
-1. **Loading `.gitignore` patterns**: The script loads exclusion patterns from the `.gitignore`.
-2. **Exclusion check**: It compares each file and directory against the exclusion patterns to decide whether to ignore it.
-3. **Generating the directory structure**: The script generates a hierarchical tree structure of the directories and files.
-4. **Saving the structure**: The generated structure is saved to a file called `project_structure.txt`.
-5. **Generating file contents (optional)**: If the `--print-content` parameter is passed, the script appends the content of each file to the output file.
+1. **Loading Ignore Patterns**:
+
+   - Loads exclusion patterns from `.gitignore` and `.generatetreeignore`.
+   - Combines patterns from both files for a unified exclusion list.
+
+2. **Exclusion Check**:
+
+   - Each file and directory is checked against the combined list of patterns to determine if it should be ignored.
+
+3. **Generating the Directory Tree**:
+
+   - Recursively scans the directory structure to create a hierarchical tree.
+
+4. **Saving the Output**:
+
+   - The directory tree is saved in `project_structure.txt`.
+
+5. **Including File Contents (Optional)**:
+   - If `--print-content` is specified, the contents of non-ignored files are appended to the output.
 
 ## Contributing
 

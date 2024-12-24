@@ -1,35 +1,47 @@
 # Developer Guide - Directory Tree Generator
 
-This document provides an in-depth explanation of how the `generate_tree.sh` script works. It is a Bash script that generates a directory tree structure of a project while ignoring files and folders listed in the `.gitignore` file. Additionally, the script can include the contents of each listed file in the output when the `--print-content` parameter is provided.
+This document provides an in-depth explanation of how the `generate_tree.sh` script works. It is a Bash script that generates a directory tree structure of a project, while ignoring files and folders listed in the `.gitignore` file or an additional `.generatetreeignore` file. Additionally, the script can include the contents of each listed file in the output when the `--print-content` parameter is provided.
+
+---
 
 ## How the Script Works
 
-### 1. **Loading Exclusion Patterns from `.gitignore`**
+### 1. **Loading Exclusion Patterns**
 
-The `load_ignore_patterns` function is responsible for loading all the exclusion patterns defined in the `.gitignore` file. The `.gitignore` file is used to list files and folders that should not be tracked by Git. The script reads this file and stores the exclusion patterns to be used later when checking which files and directories should be ignored in the tree generation.
+The script supports two sources of exclusion patterns:
+
+- `.gitignore`: The file used by Git to ignore files and directories.
+- `.generatetreeignore`: A custom file that allows additional patterns specific to this script.
+
+The `load_ignore_patterns` function is responsible for reading both files and consolidating the exclusion patterns.
 
 ```bash
 load_ignore_patterns() {
-  local gitignore_file=".gitignore"
+  local ignore_files=(".gitignore" ".generatetreeignore")
   ignored_patterns=()
 
-  if [[ -f "$gitignore_file" ]]; then
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      line="${line%%#*}" && line=$(echo "$line" | xargs)
-      [[ -n "$line" ]] && ignored_patterns+=("$line")
-    done < "$gitignore_file"
-  fi
+  for ignore_file in "${ignore_files[@]}"; do
+    if [[ -f "$ignore_file" ]]; then
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%%#*}" && line=$(echo "$line" | xargs)
+        [[ -n "$line" ]] && ignored_patterns+=("$line")
+      done < "$ignore_file"
+    fi
+  done
 }
 ```
 
 #### What the code does:
 
-- **Reads the `.gitignore` file**: The script opens and reads each line of the `.gitignore` file, ignoring blank lines and comments.
-- **Stores exclusion patterns**: Valid lines (without comments) are added to an array called `ignored_patterns`, which will be used later to check if a file or directory should be ignored.
+- **Reads both files**: The function iterates through `.gitignore` and `.generatetreeignore` files.
+- **Filters valid patterns**: Lines that are comments or empty are ignored. Valid patterns are added to the `ignored_patterns` array.
+- **Combines patterns**: Patterns from both files are combined into a single list.
+
+---
 
 ### 2. **Checking if an Entry Should Be Ignored**
 
-The `is_ignored` function takes a file or directory path and checks if it should be ignored by comparing it with the exclusion patterns loaded earlier.
+The `is_ignored` function determines whether a given file or directory matches any of the exclusion patterns.
 
 ```bash
 is_ignored() {
@@ -47,14 +59,16 @@ is_ignored() {
 
 #### What the code does:
 
-- **Checks if it's a directory**: If the entry is a directory, a slash (`/`) is added at the end to differentiate it from a file.
-- **Checks the exclusion patterns**: For each pattern in the `.gitignore` file, it checks if the entry path matches the pattern.
-  - If it matches, the function returns `0`, indicating that the entry should be ignored.
-  - If it doesn't match, the function returns `1`, indicating that the entry should not be ignored.
+- **Handles directories**: Ensures directory paths are formatted with a trailing slash for matching.
+- **Matches patterns**: Checks if the entry matches any pattern in the `ignored_patterns` list.
+  - If a match is found, the function returns `0` (indicating the entry is ignored).
+  - If no match is found, it returns `1`.
+
+---
 
 ### 3. **Generating the Directory Tree Structure**
 
-The `generate_tree_structure` function iterates through directories and files and generates a hierarchical tree structure. The structure is displayed with indentation to indicate the levels of subdirectories.
+The `generate_tree_structure` function creates a hierarchical representation of the directory structure, excluding ignored files and directories.
 
 ```bash
 generate_tree_structure() {
@@ -99,13 +113,15 @@ generate_tree_structure() {
 
 #### What the code does:
 
-- **Lists files and directories**: The script lists files and directories in the current directory, including hidden files (those starting with a dot).
-- **Ignores files and directories**: Before adding a file or directory to the tree, the script checks if it should be ignored based on the `.gitignore` file.
-- **Displays the tree structure**: For each directory and file, the script prints the name with an appropriate prefix to indicate its level in the tree (using the symbols `├──` and `└──`).
+- **Lists files and directories**: The script gathers all visible and hidden entries in the current directory.
+- **Filters ignored entries**: Before processing each entry, it checks if it matches any exclusion pattern.
+- **Generates a tree structure**: For each directory and file, the function prints a structured representation with appropriate symbols (`├──`, `└──`).
+
+---
 
 ### 4. **Generating File Contents (Optional)**
 
-The `generate_file_contents` function is responsible for appending the contents of each file in the directory structure to the output file, if the `--print-content` parameter is provided.
+The `generate_file_contents` function appends the contents of each file in the directory structure to the output file, if the `--print-content` option is enabled.
 
 ```bash
 generate_file_contents() {
@@ -127,12 +143,14 @@ generate_file_contents() {
 
 #### What the code does:
 
-- **Iterates through files**: The function reads each file in the directory structure.
-- **Appends file contents**: For each file, it appends its contents to the output file. If there is an error reading the file (e.g., permission issues), it appends a message stating `[Error reading file]`.
+- **Iterates through files**: Identifies all files in the project directory.
+- **Appends file contents**: For each file, its contents are appended to the output file. Errors (e.g., permission issues) are logged as `[Error reading file]`.
+
+---
 
 ### 5. **Writing the Structure to the Output File**
 
-The `write_tree_to_file` function creates a file called `project_structure.txt` and writes the generated structure to it.
+The `write_tree_to_file` function creates and writes the generated directory tree structure to the `project_structure.txt` file.
 
 ```bash
 write_tree_to_file() {
@@ -145,12 +163,14 @@ write_tree_to_file() {
 
 #### What the code does:
 
-- **Creates or clears the output file**: If the file already exists, it is cleared before being rewritten.
-- **Writes the structure**: The generated directory structure is appended to the `project_structure.txt` file.
+- **Creates or clears the output file**: Ensures the output file starts empty.
+- **Writes the directory structure**: Appends the generated tree structure to the output file.
+
+---
 
 ### 6. **Main Execution**
 
-The `main` function is responsible for loading the `.gitignore` patterns and calling the functions that generate and write the tree structure, along with appending the file contents if requested.
+The `main` function orchestrates the script's execution by calling the necessary functions based on the provided arguments.
 
 ```bash
 main() {
@@ -158,7 +178,7 @@ main() {
 
   if [[ "$1" == "--print-content" ]]; then
     print_content=true
-    shift # Remove the --print-content argument
+    shift
   fi
 
   load_ignore_patterns
@@ -174,6 +194,43 @@ main "$@"
 
 #### What the code does:
 
-- **Checks for `--print-content`**: The script checks if the `--print-content` argument is passed. If so, it will generate file contents and append them to the output.
-- **Generates and writes the tree structure**: The `write_tree_to_file` function is called to generate and save the directory tree structure to the output file.
-- **Generates file contents (optional)**: If the `--print-content` flag was passed, the `generate_file_contents` function is called to append the file contents to the output file.
+- **Processes arguments**: Checks if the `--print-content` flag is provided.
+- **Loads exclusion patterns**: Reads patterns from `.gitignore` and `.generatetreeignore`.
+- **Generates and writes the tree structure**: Calls the functions to generate and save the directory tree.
+- **Appends file contents (optional)**: If the `--print-content` flag is enabled, appends the contents of each file to the output.
+
+---
+
+## New Functionality: `.generatetreeignore`
+
+The `.generatetreeignore` file is a new addition that allows users to define exclusion patterns specific to this script, without affecting the `.gitignore` file.
+
+### Key Features:
+
+- **Custom patterns**: Define patterns for files and directories to be excluded from the generated tree, independently of `.gitignore`.
+- **Priority**: Patterns from `.generatetreeignore` are combined with `.gitignore` patterns, but they do not override `.gitignore`.
+
+---
+
+### Example `.generatetreeignore` File:
+
+```plaintext
+node_modules/
+dist/
+*.log
+*.tmp
+```
+
+In this example:
+
+- `node_modules/` and `dist/` directories will be ignored.
+- Files with `.log` or `.tmp` extensions will also be excluded.
+
+---
+
+### Summary of Changes
+
+- The script now reads and incorporates patterns from `.generatetreeignore`.
+- Users can customize exclusions for tree generation without modifying `.gitignore`.
+
+This new functionality ensures flexibility while maintaining compatibility with existing `.gitignore` configurations.
