@@ -2,6 +2,12 @@
 
 This is a Bash script that generates a directory tree structure of a project, similar to the `tree` command, but with enhanced functionality. It respects files and directories listed in `.gitignore` and `.generatetreeignore`. The generated structure is saved in a file called `project_structure.txt`. Additionally, you can optionally include the contents of the listed files in the output.
 
+## Download
+
+You can download directly using the link below:
+
+- [Download File](https://github.com/caiquegaspar/directory-tree-generator/releases/download/v1.0.0/generate_tree.sh)
+
 ## Features
 
 - **Ignores files and directories**: Respects patterns specified in `.gitignore` and `.generatetreeignore`.
