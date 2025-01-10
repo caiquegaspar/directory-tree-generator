@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Global variable for debug mode
+DEBUG_MODE=false
+
+# Function to echo debug messages only when DEBUG_MODE is true
+debug_echo() {
+  if [[ "$DEBUG_MODE" == true ]]; then
+    echo "$@"
+  fi
+}
+
 # Loads the exclusion patterns from .gitignore and .generatetreeignore (if exists)
 load_ignore_patterns() {
   local gitignore_file=".gitignore"
@@ -26,6 +36,8 @@ load_ignore_patterns() {
       [[ -n "$line" ]] && ignored_patterns+=("$line")
     done <"$generatetreeignore_file"
   fi
+
+  debug_echo "DEBUG: Loaded ignore patterns: ${ignored_patterns[@]}"
 }
 
 # Checks if an entry should be ignored
@@ -35,12 +47,16 @@ is_ignored() {
   # Adds a trailing slash for directories
   [[ -d "$entry" ]] && entry="${entry%/}/"
 
+  debug_echo "DEBUG: Checking if '$entry' is ignored..."
   for pattern in "${ignored_patterns[@]}"; do
-    # Uses fnmatch for pattern matching, such as *.log
-    if [[ "$entry" == $pattern || "$entry" == */"$pattern" || "$entry" == "$pattern"* ]]; then
+    debug_echo "DEBUG:   Comparing with pattern: '$pattern'"
+    # Use pattern matching with wildcards. Also check against patterns that are relative from root with leading '/' to allow for .generatetreeignore path specification
+    if [[ "$entry" == $pattern ]] || [[ "$entry" == */"$pattern" ]] || [[ "$entry" == "$pattern"* ]] || [[ "$entry" == /*"$pattern" ]]; then
+      debug_echo "DEBUG:     '$entry' matches pattern '$pattern'. Ignoring."
       return 0
     fi
   done
+  debug_echo "DEBUG:     '$entry' is not ignored."
   return 1
 }
 
@@ -59,6 +75,7 @@ generate_tree_structure() {
     [[ ! -e "$entry" ]] && continue
     local relative_path="${entry#./}"
 
+    debug_echo "DEBUG: Checking entry: '$relative_path'"
     # Ignore entries as per .gitignore and .generatetreeignore
     is_ignored "$relative_path" && continue
 
@@ -113,25 +130,36 @@ generate_file_contents() {
     local relative_file="${file#./}"
 
     # Check if the file or its directory should be ignored
-    is_ignored "$relative_file" && continue
-
-    echo "--- File: $relative_file ---" >>"$output_file"
-    echo "" >>"$output_file"
-    cat "$file" >>"$output_file" 2>/dev/null || echo "[Error reading file]" >>"$output_file"
-    echo "" >>"$output_file"
-    echo "" >>"$output_file"
+    if ! is_ignored "$relative_file"; then
+      echo "--- File: $relative_file ---" >>"$output_file"
+      echo "" >>"$output_file"
+      cat "$file" >>"$output_file" 2>/dev/null || echo "[Error reading file]" >>"$output_file"
+      echo "" >>"$output_file"
+      echo "" >>"$output_file"
+    fi
   done
 }
 
 # Main execution
 main() {
   local print_content=false
+  local args=("$@")
 
-  # Check for "--print-content" parameter
-  if [[ "$1" == "--print-content" ]]; then
-    print_content=true
-    shift # Remove the --print-content argument
-  fi
+  # Process arguments
+  for arg in "${args[@]}"; do
+    case "$arg" in
+    "--print-content")
+      print_content=true
+      ;;
+    "--debug")
+      DEBUG_MODE=true
+      ;;
+    *)
+      echo "Unknown argument: $arg"
+      exit 1
+      ;;
+    esac
+  done
 
   # Generate the tree structure
   load_ignore_patterns

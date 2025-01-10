@@ -1,6 +1,6 @@
 # Developer Guide - Directory Tree Generator
 
-This document provides an in-depth explanation of how the `generate_tree.sh` script works. It is a Bash script that generates a directory tree structure of a project, while ignoring files and folders listed in the `.gitignore` file or an additional `.generatetreeignore` file. Additionally, the script can include the contents of each listed file in the output when the `--print-content` parameter is provided.
+This document provides an in-depth explanation of how the `generate_tree.sh` script works. It is a Bash script that generates a directory tree structure of a project, while ignoring files and folders listed in the `.gitignore` file or an additional `.generatetreeignore` file. Additionally, the script can include the contents of each listed file in the output when the `--print-content` parameter is provided, and now includes a debug mode activated by the `--debug` parameter.
 
 ---
 
@@ -28,6 +28,8 @@ load_ignore_patterns() {
       done < "$ignore_file"
     fi
   done
+
+  debug_echo "DEBUG: Loaded ignore patterns: ${ignored_patterns[@]}"
 }
 ```
 
@@ -36,6 +38,7 @@ load_ignore_patterns() {
 - **Reads both files**: The function iterates through `.gitignore` and `.generatetreeignore` files.
 - **Filters valid patterns**: Lines that are comments or empty are ignored. Valid patterns are added to the `ignored_patterns` array.
 - **Combines patterns**: Patterns from both files are combined into a single list.
+- **Debug Output**: When debug mode is enabled, the loaded ignore patterns are printed to the console.
 
 ---
 
@@ -48,11 +51,15 @@ is_ignored() {
   local entry="$1"
   [[ -d "$entry" ]] && entry="${entry%/}/"
 
+  debug_echo "DEBUG: Checking if '$entry' is ignored..."
   for pattern in "${ignored_patterns[@]}"; do
-    if [[ "$entry" == $pattern || "$entry" == */"$pattern" || "$entry" == "$pattern"* ]]; then
+    debug_echo "DEBUG:   Comparing with pattern: '$pattern'"
+    if [[ "$entry" == "$pattern" || "$entry" == */"$pattern" || "$entry" == "$pattern"* || "$entry" == /*"$pattern" ]]; then
+      debug_echo "DEBUG:     '$entry' matches pattern '$pattern'. Ignoring."
       return 0
     fi
   done
+  debug_echo "DEBUG:     '$entry' is not ignored."
   return 1
 }
 ```
@@ -63,6 +70,7 @@ is_ignored() {
 - **Matches patterns**: Checks if the entry matches any pattern in the `ignored_patterns` list.
   - If a match is found, the function returns `0` (indicating the entry is ignored).
   - If no match is found, it returns `1`.
+- **Debug Output**: When debug mode is enabled, the function prints messages indicating which entry is being checked and the patterns it's being compared against.
 
 ---
 
@@ -84,6 +92,7 @@ generate_tree_structure() {
     [[ ! -e "$entry" ]] && continue
     local relative_path="${entry#./}"
 
+    debug_echo "DEBUG: Checking entry: '$relative_path'"
     is_ignored "$relative_path" && continue
 
     [[ -d "$entry" ]] && dirs+=("$entry") || files+=("$entry")
@@ -114,8 +123,9 @@ generate_tree_structure() {
 #### What the code does:
 
 - **Lists files and directories**: The script gathers all visible and hidden entries in the current directory.
-- **Filters ignored entries**: Before processing each entry, it checks if it matches any exclusion pattern.
-- **Generates a tree structure**: For each directory and file, the function prints a structured representation with appropriate symbols (`├──`, `└──`).
+- **Filters ignored entries**: Before processing each entry, it checks if it matches any exclusion pattern using the `is_ignored` function.
+- **Generates a tree structure**: For each directory and file that is not ignored, the function prints a structured representation with appropriate symbols (`├──`, `└──`).
+- **Debug Output**: When debug mode is enabled, the function prints messages indicating which entry is being checked for exclusion.
 
 ---
 
@@ -132,11 +142,15 @@ generate_file_contents() {
 
   while IFS= read -r file; do
     [[ -d "$file" ]] && continue
+    local relative_file="${file#./}"
 
-    echo "--- File: $file ---" >>"$output_file"
-    echo "" >>"$output_file"
-    cat "$file" >>"$output_file" 2>/dev/null || echo "[Error reading file]" >>"$output_file"
-    echo "" >>"$output_file"
+    if ! is_ignored "$relative_file"; then
+      echo "--- File: $relative_file ---" >>"$output_file"
+      echo "" >>"$output_file"
+      cat "$file" >>"$output_file" 2>/dev/null || echo "[Error reading file]" >>"$output_file"
+      echo "" >>"$output_file"
+      echo "" >>"$output_file"
+    fi
   done < <(find . -type f ! -path "./.git/*")
 }
 ```
@@ -144,7 +158,8 @@ generate_file_contents() {
 #### What the code does:
 
 - **Iterates through files**: Identifies all files in the project directory.
-- **Appends file contents**: For each file, its contents are appended to the output file. Errors (e.g., permission issues) are logged as `[Error reading file]`.
+- **Filters ignored entries**: Before processing each file, it checks if it matches any exclusion pattern using the `is_ignored` function.
+- **Appends file contents**: For each non-ignored file, its contents are appended to the output file. Errors (e.g., permission issues) are logged as `[Error reading file]`.
 
 ---
 
@@ -156,7 +171,9 @@ The `write_tree_to_file` function creates and writes the generated directory tre
 write_tree_to_file() {
   local output_file="$1"
   > "$output_file"
-  echo "/" >> "$output_file"
+  echo "--- 📁 Project Structure ---" >>"$output_file"
+  echo '' >>"$output_file"
+  echo "/" >>"$output_file"
   generate_tree_structure "." "" >> "$output_file"
 }
 ```
@@ -175,11 +192,27 @@ The `main` function orchestrates the script's execution by calling the necessary
 ```bash
 main() {
   local print_content=false
+  local DEBUG_MODE=false
+  local args=("$@")
 
-  if [[ "$1" == "--print-content" ]]; then
-    print_content=true
-    shift
-  fi
+  # Process arguments
+  for arg in "${args[@]}"; do
+    case "$arg" in
+      "--print-content")
+        print_content=true
+        ;;
+      "--debug")
+        DEBUG_MODE=true
+        ;;
+      *)
+        echo "Unknown argument: $arg"
+        exit 1
+        ;;
+    esac
+  done
+
+  # Set the global DEBUG_MODE variable
+  export DEBUG_MODE
 
   load_ignore_patterns
   write_tree_to_file "project_structure.txt"
@@ -194,43 +227,57 @@ main "$@"
 
 #### What the code does:
 
-- **Processes arguments**: Checks if the `--print-content` flag is provided.
+- **Processes arguments**: Checks if the `--print-content` and `--debug` flags are provided.
+- **Sets Debug Mode**: The `DEBUG_MODE` variable is set based on the presence of the `--debug` flag and exported to be accessible by other functions.
 - **Loads exclusion patterns**: Reads patterns from `.gitignore` and `.generatetreeignore`.
 - **Generates and writes the tree structure**: Calls the functions to generate and save the directory tree.
 - **Appends file contents (optional)**: If the `--print-content` flag is enabled, appends the contents of each file to the output.
 
 ---
 
-## New Functionality: `.generatetreeignore`
+## New Functionality: Debug Mode
 
-The `.generatetreeignore` file is a new addition that allows users to define exclusion patterns specific to this script, without affecting the `.gitignore` file.
+The script now includes a debug mode that can be enabled using the `--debug` parameter. This mode provides detailed output about the script's execution, which can be helpful for understanding how the script is processing files and ignore patterns.
 
-### Key Features:
+### Enabling Debug Mode
 
-- **Custom patterns**: Define patterns for files and directories to be excluded from the generated tree, independently of `.gitignore`.
-- **Priority**: Patterns from `.generatetreeignore` are combined with `.gitignore` patterns, but they do not override `.gitignore`.
+To enable debug mode, simply include the `--debug` parameter when running the script:
 
----
-
-### Example `.generatetreeignore` File:
-
-```plaintext
-node_modules/
-dist/
-*.log
-*.tmp
+```bash
+./generate_tree.sh --debug
 ```
 
-In this example:
+You can also combine it with other parameters:
 
-- `node_modules/` and `dist/` directories will be ignored.
-- Files with `.log` or `.tmp` extensions will also be excluded.
+```bash
+./generate_tree.sh --print-content --debug
+```
 
----
+### Debug Output
 
-### Summary of Changes
+When debug mode is enabled, the script will print the following information to the console:
 
-- The script now reads and incorporates patterns from `.generatetreeignore`.
-- Users can customize exclusions for tree generation without modifying `.gitignore`.
+- **Loaded ignore patterns**: Displays the list of patterns loaded from `.gitignore` and `.generatetreeignore`.
+- **File exclusion checks**: Shows each file and directory being checked against the ignore patterns, and whether it is being ignored or not.
+- **Pattern matching**: Indicates which specific ignore pattern matched a given file or directory, if a match occurs.
 
-This new functionality ensures flexibility while maintaining compatibility with existing `.gitignore` configurations.
+### `DEBUG_MODE` Variable and `debug_echo` Function
+
+- **`DEBUG_MODE`**: This global variable (set in the `main` function based on the `--debug` argument) controls whether debug messages are displayed.
+- **`debug_echo()`**: This helper function is used throughout the script to print debug messages. It only outputs its arguments if the `DEBUG_MODE` variable is set to `true`.
+
+```bash
+# Global variable for debug mode
+DEBUG_MODE=false
+
+# Function to echo debug messages only when DEBUG_MODE is true
+debug_echo() {
+  if [[ "$DEBUG_MODE" == true ]]; then
+    echo "$@"
+  fi
+}
+```
+
+By using this structure, debug messages can be easily added or removed from the script by simply calling `debug_echo` instead of `echo` directly.
+
+This new functionality provides developers with a valuable tool for understanding and troubleshooting the script's behavior.

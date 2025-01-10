@@ -14,6 +14,7 @@ This format follows the guidelines of [Keep a Changelog](https://keepachangelog.
   - Support for ignored files and folders specified in `.gitignore`.
   - `--print-content` option to include file contents in the output report.
   - Support for a new `.generatetreeignore` file for custom file/directory exclusion.
+  - **Debug Mode**: Added a `--debug` flag to enable detailed script execution messages.
 
 - **Ignored File Loading**:
 
@@ -35,6 +36,7 @@ This format follows the guidelines of [Keep a Changelog](https://keepachangelog.
 
 - Error handling when attempting to read files without permission.
 - Fixed issues with files and directories that include special characters in their names.
+- Resolved an issue where files specified in `.generatetreeignore` were not always being ignored due to incorrect path separator handling. Forward slashes (`/`) are now correctly interpreted as path separators.
 
 ---
 

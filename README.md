@@ -1,6 +1,6 @@
 # Directory Tree Generator
 
-This is a Bash script that generates a directory tree structure of a project, similar to the `tree` command, but with enhanced functionality. It respects files and directories listed in `.gitignore` and `.generatetreeignore`. The generated structure is saved in a file called `project_structure.txt`. Additionally, you can optionally include the contents of the listed files in the output.
+This is a Bash script that generates a directory tree structure of a project, similar to the `tree` command, but with enhanced functionality. It respects files and directories listed in `.gitignore` and `.generatetreeignore`. The generated structure is saved in a file called `project_structure.txt`. Additionally, you can optionally include the contents of the listed files in the output and enable a debug mode for detailed script execution.
 
 ## Download
 
@@ -15,6 +15,7 @@ You can download directly using the link below:
 - **Generates directory tree**: Creates a hierarchical directory structure.
 - **Output to file**: Saves the generated structure to `project_structure.txt`.
 - **File contents (optional)**: Includes the contents of each file in the directory structure with the `--print-content` parameter.
+- **Debug mode (optional)**: Provides detailed script execution messages using the `--debug` parameter.
 
 ## How to Use
 
@@ -34,11 +35,31 @@ You can download directly using the link below:
    ./generate_tree.sh
    ```
 
-3. The generated structure will be saved in `project_structure.txt`. To include file contents, use the `--print-content` argument:
+3. The generated structure will be saved in `project_structure.txt`.
 
-   ```bash
-   ./generate_tree.sh --print-content
-   ```
+   - To include file contents, use the `--print-content` argument:
+
+     ```bash
+     ./generate_tree.sh --print-content
+     ```
+
+   - To enable debug mode and see detailed script execution messages, use the `--debug` argument:
+
+     ```bash
+     ./generate_tree.sh --debug
+     ```
+
+   - You can combine both `--print-content` and `--debug` arguments. The order does not matter:
+
+     ```bash
+     ./generate_tree.sh --print-content --debug
+     ```
+
+     or
+
+     ```bash
+     ./generate_tree.sh --debug --print-content
+     ```
 
 ### Using `.generatetreeignore`
 
@@ -58,7 +79,7 @@ Patterns in `.generatetreeignore` will be processed in addition to `.gitignore`.
 
 ### Example Output
 
-#### Without `--print-content`
+#### Without `--print-content` and `--debug`
 
 The `project_structure.txt` file will contain a directory structure similar to:
 
@@ -130,7 +151,11 @@ jobs:
         run: docker buildx build --file docker/Dockerfile --tag my-project-image:${{ github.sha }} --tag my-project-image:latest --load .
 ```
 
-## How It Works
+#### With `--debug`
+
+Running the script with `--debug` will output detailed messages about the script's execution in your terminal, such as loaded ignore patterns and file matching processes. This output will appear alongside the regular output unless redirected.
+
+### How It Works
 
 1. **Loading Ignore Patterns**:
 
@@ -150,7 +175,11 @@ jobs:
    - The directory tree is saved in `project_structure.txt`.
 
 5. **Including File Contents (Optional)**:
+
    - If `--print-content` is specified, the contents of non-ignored files are appended to the output.
+
+6. **Debug Mode (Optional)**:
+   - If `--debug` is specified, detailed messages about the script's execution are printed to the console.
 
 ## Contributing
 
