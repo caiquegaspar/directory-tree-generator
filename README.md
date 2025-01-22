@@ -72,7 +72,7 @@ To add custom exclusions beyond `.gitignore`, create a `.generatetreeignore` fil
 *.log
 
 # Ignore specific folders
-/temp/
+temp/
 ```
 
 Patterns in `.generatetreeignore` will be processed in addition to `.gitignore`.
