@@ -1,0 +1,13 @@
+--- Project Structure ---
+
+/
+├── test_folder/
+│   ├── depth2folder/
+│   │   ├── depth3folder/
+│   │   └── depth3file.txt
+│   ├── dont_ignore.txt
+│   └── generated_with_-o_param.md
+├── .contentignore
+├── .generatetreeignore
+├── .gitignore
+└── project_structure.md

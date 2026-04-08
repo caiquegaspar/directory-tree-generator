@@ -1,283 +1,270 @@
-# Developer Guide - Directory Tree Generator
+# Developer Guide — Directory Tree Generator
 
-This document provides an in-depth explanation of how the `generate_tree.sh` script works. It is a Bash script that generates a directory tree structure of a project, while ignoring files and folders listed in the `.gitignore` file or an additional `.generatetreeignore` file. Additionally, the script can include the contents of each listed file in the output when the `--print-content` parameter is provided, and now includes a debug mode activated by the `--debug` parameter.
+This document covers the internal design of `generate_tree.sh`, every non-trivial decision, the bugs fixed from v1, and guidance for extending the script.
 
 ---
 
-## How the Script Works
+## Architecture overview
 
-### 1. **Loading Exclusion Patterns**
+```
+Constants & state
+       │
+       ▼
+load_ignore_patterns ──────────────────────────────────────┐
+  reads .gitignore, .generatetreeignore → ignored_patterns  │
+  reads .contentignore               → content_skip_patterns│
+       │                                                     │
+       ▼                                                     │
+generate_tree_structure (recursive)                          │
+  calls is_ignored()        ◄── uses ignored_patterns        │
+  populates collected_files                                  │
+       │                                                     │
+       ├──────────────┐                                      │
+       ▼              ▼                                      │
+  write_txt      write_md                                    │
+  calls is_content_skipped() ◄── uses content_skip_patterns ─┘
+  calls is_binary_file()
+       │
+       ▼
+     main (CLI entry, argument parsing)
+```
 
-The script supports two sources of exclusion patterns:
+`generate_tree_structure` has one side effect beyond printing: it populates the global `collected_files` array as it walks the tree. Both output writers consume that array for the `--print-content` section, avoiding a second `find` pass over the filesystem and guaranteeing that tree and content sections stay in sync.
 
-- `.gitignore`: The file used by Git to ignore files and directories.
-- `.generatetreeignore`: A custom file that allows additional patterns specific to this script.
+---
 
-The `load_ignore_patterns` function is responsible for reading both files and consolidating the exclusion patterns.
+## Shell settings
+
+```bash
+set -euo pipefail
+shopt -s nullglob dotglob
+```
+
+`set -euo pipefail` enforces strict error handling. `-e` exits on any unhandled non-zero exit; `-u` treats unset variables as errors; `-o pipefail` makes pipelines fail if any stage fails.
+
+`shopt -s nullglob` causes a glob that matches nothing to expand to an empty list instead of the literal string. Without it, `for entry in "$dir"/*` on an empty directory iterates once with the literal value `"$dir/*"`, which would then fail the `-e` existence check silently.
+
+`shopt -s dotglob` makes `*` include hidden files (those starting with `.`). This is critical for capturing `.github/`, `.env`, `.gitignore`, etc. in a single glob. Earlier versions used both `"$dir"/*` and `"$dir"/.*`, which caused every dotfile to appear **twice** in the output.
+
+---
+
+## Three ignore layers
+
+The script uses three distinct arrays to implement its three-tier ignore system:
+
+| Array                   | Source                                   | Effect                                                                           |
+| ----------------------- | ---------------------------------------- | -------------------------------------------------------------------------------- |
+| `ignored_patterns`      | `.gitignore`, `.generatetreeignore`      | File/directory completely excluded from tree                                     |
+| `content_skip_patterns` | `.contentignore`, `--skip-content` flags | File shown in tree, content suppressed                                           |
+| `BINARY_EXTENSIONS`     | hardcoded constant                       | File shown in tree, content suppressed (detected by extension or `file` command) |
+
+Content-skip is checked in the output writers (`write_txt`, `write_md`), not during tree traversal. This is by design: the tree walk must remain unaware of the content layer so that the two concerns don't bleed into each other.
+
+---
+
+## Pattern loading
 
 ```bash
 load_ignore_patterns() {
-  local ignore_files=(".gitignore" ".generatetreeignore")
-  ignored_patterns=()
+  ignored_patterns+=(".git/")
 
-  for ignore_file in "${ignore_files[@]}"; do
-    if [[ -f "$ignore_file" ]]; then
-      while IFS= read -r line || [[ -n "$line" ]]; do
-        line="${line%%#*}" && line=$(echo "$line" | xargs)
-        [[ -n "$line" ]] && ignored_patterns+=("$line")
-      done < "$ignore_file"
-    fi
+  local f line
+  for f in ".gitignore" ".generatetreeignore"; do
+    ...
+    done < "$f"
   done
 
-  debug_echo "DEBUG: Loaded ignore patterns: ${ignored_patterns[@]}"
+  if [[ -f ".contentignore" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      ...
+      [[ -n "$line" ]] && content_skip_patterns+=("$line")
+    done < ".contentignore"
+  fi
 }
 ```
 
-#### What the code does:
+Whitespace trimming uses pure bash parameter expansion — no subshells:
 
-- **Reads both files**: The function iterates through `.gitignore` and `.generatetreeignore` files.
-- **Filters valid patterns**: Lines that are comments or empty are ignored. Valid patterns are added to the `ignored_patterns` array.
-- **Combines patterns**: Patterns from both files are combined into a single list.
-- **Debug Output**: When debug mode is enabled, the loaded ignore patterns are printed to the console.
+```bash
+line="${line%%#*}"                             # strip inline comment
+line="${line#"${line%%[^[:space:]]*}"}"        # ltrim
+line="${line%"${line##*[^[:space:]]}"}"        # rtrim
+```
+
+The original code used `echo "$line" | xargs` for this, spawning two processes per line and breaking on inputs like `-n` or lines containing only whitespace.
+
+The `|| [[ -n "$line" ]]` guard on `read` handles files that lack a trailing newline — without it, the last line is silently dropped.
 
 ---
 
-### 2. **Checking if an Entry Should Be Ignored**
-
-The `is_ignored` function determines whether a given file or directory matches any of the exclusion patterns.
+## Pattern matching
 
 ```bash
 is_ignored() {
   local entry="$1"
   [[ -d "$entry" ]] && entry="${entry%/}/"
 
-  debug_echo "DEBUG: Checking if '$entry' is ignored..."
+  local pattern
   for pattern in "${ignored_patterns[@]}"; do
-    debug_echo "DEBUG:   Comparing with pattern: '$pattern'"
-    if [[ "$entry" == "$pattern" || "$entry" == */"$pattern" || "$entry" == "$pattern"* || "$entry" == /*"$pattern" ]]; then
-      debug_echo "DEBUG:     '$entry' matches pattern '$pattern'. Ignoring."
+    # shellcheck disable=SC2254
+    if [[ "$entry" == $pattern      || \
+          "$entry" == */"$pattern"  || \
+          "$entry" == "$pattern"/*  ]]; then
       return 0
     fi
   done
-  debug_echo "DEBUG:     '$entry' is not ignored."
   return 1
 }
 ```
 
-#### What the code does:
+The three conditions handle the main classes of gitignore-style matching:
 
-- **Handles directories**: Ensures directory paths are formatted with a trailing slash for matching.
-- **Matches patterns**: Checks if the entry matches any pattern in the `ignored_patterns` list.
-  - If a match is found, the function returns `0` (indicating the entry is ignored).
-  - If no match is found, it returns `1`.
-- **Debug Output**: When debug mode is enabled, the function prints messages indicating which entry is being checked and the patterns it's being compared against.
+| Condition                  | Example pattern | Matches                        |
+| -------------------------- | --------------- | ------------------------------ |
+| `"$entry" == $pattern`     | `*.log`         | `debug.log`, `logs/app.log`    |
+| `"$entry" == */"$pattern"` | `Dockerfile`    | `docker/Dockerfile`            |
+| `"$entry" == "$pattern"/*` | `node_modules/` | `node_modules/lodash/index.js` |
+
+`$pattern` is intentionally **unquoted** in the first condition. In bash `[[`, the right-hand side of `==` is treated as a glob pattern when unquoted. This is what allows `*.log` to match `debug.log`. Quoting it (`"$pattern"`) would make it a literal string comparison, silently breaking every wildcard rule. The `# shellcheck disable=SC2254` comment is intentional.
+
+`is_content_skipped` uses the same two-condition approach, omitting the directory-traversal condition since it only ever receives file paths.
+
+**Known limitation:** This is not a full gitignore parser. Negation (`!important.log`), anchored patterns (`/build`), and `**` double-star matching are not supported. For full compliance, replace `is_ignored` with a call to `git check-ignore -q "$entry"`.
 
 ---
 
-### 3. **Generating the Directory Tree Structure**
-
-The `generate_tree_structure` function creates a hierarchical representation of the directory structure, excluding ignored files and directories.
+## Tree generation and arithmetic safety
 
 ```bash
 generate_tree_structure() {
-  local dir="$1"
-  local indent="$2"
-  local entries
-  local dirs=()
-  local files=()
+  ...
+  local total=$(( ${#dirs[@]} + ${#files[@]} ))
+  local idx=0
 
-  entries=("$dir"/* "$dir"/.*)
-
-  for entry in "${entries[@]}"; do
-    [[ ! -e "$entry" ]] && continue
-    local relative_path="${entry#./}"
-
-    debug_echo "DEBUG: Checking entry: '$relative_path'"
-    is_ignored "$relative_path" && continue
-
-    [[ -d "$entry" ]] && dirs+=("$entry") || files+=("$entry")
-  done
-
-  IFS=$'\n' dirs=($(sort <<<"${dirs[*]}"))
-  IFS=$'\n' files=($(sort <<<"${files[*]}"))
-  unset IFS
-
-  local total=${#dirs[@]}+${#files[@]}
-  for i in "${!dirs[@]}"; do
-    local name=$(basename "${dirs[$i]}")
-    local prefix="├── "
-    [[ $((i + 1)) -eq $total ]] && prefix="└── "
-    echo "${indent}${prefix}${name}/"
-    generate_tree_structure "${dirs[$i]}" "${indent}│   "
-  done
-
-  for i in "${!files[@]}"; do
-    local name=$(basename "${files[$i]}")
-    local prefix="├── "
-    [[ $((i + 1 + ${#dirs[@]})) -eq $total ]] && prefix="└── "
-    echo "${indent}${prefix}${name}"
+  for entry in "${dirs[@]}"; do
+    idx=$(( idx + 1 ))
+    ...
   done
 }
 ```
 
-#### What the code does:
-
-- **Lists files and directories**: The script gathers all visible and hidden entries in the current directory.
-- **Filters ignored entries**: Before processing each entry, it checks if it matches any exclusion pattern using the `is_ignored` function.
-- **Generates a tree structure**: For each directory and file that is not ignored, the function prints a structured representation with appropriate symbols (`├──`, `└──`).
-- **Debug Output**: When debug mode is enabled, the function prints messages indicating which entry is being checked for exclusion.
-
----
-
-### 4. **Generating File Contents (Optional)**
-
-The `generate_file_contents` function appends the contents of each file in the directory structure to the output file, if the `--print-content` option is enabled.
+A subtle but important rule: `(( expression ))` returns exit code 1 when the arithmetic result is zero. With `set -e` active, this silently exits the script.
 
 ```bash
-generate_file_contents() {
-  local output_file="$1"
-  echo "" >>"$output_file"
-  echo "--- 📄 File Contents ---" >>"$output_file"
-  echo "" >>"$output_file"
+# DANGEROUS with set -e — exits when idx is 0:
+(( idx++ ))
 
-  while IFS= read -r file; do
-    [[ -d "$file" ]] && continue
-    local relative_file="${file#./}"
-
-    if ! is_ignored "$relative_file"; then
-      echo "--- File: $relative_file ---" >>"$output_file"
-      echo "" >>"$output_file"
-      cat "$file" >>"$output_file" 2>/dev/null || echo "[Error reading file]" >>"$output_file"
-      echo "" >>"$output_file"
-      echo "" >>"$output_file"
-    fi
-  done < <(find . -type f ! -path "./.git/*")
-}
+# SAFE — assignment always exits 0:
+idx=$(( idx + 1 ))
 ```
 
-#### What the code does:
-
-- **Iterates through files**: Identifies all files in the project directory.
-- **Filters ignored entries**: Before processing each file, it checks if it matches any exclusion pattern using the `is_ignored` function.
-- **Appends file contents**: For each non-ignored file, its contents are appended to the output file. Errors (e.g., permission issues) are logged as `[Error reading file]`.
+The v1 script also had a bug where `local total=${#dirs[@]}+${#files[@]}` created the **string** `"3+2"` rather than the integer `5`. It happened to work in `-lt` comparisons because bash evaluates arithmetic in that context, but it was unintentional and a ticking time bomb.
 
 ---
 
-### 5. **Writing the Structure to the Output File**
+## `printf` and the `--` trap
 
-The `write_tree_to_file` function creates and writes the generated directory tree structure to the `project_structure.txt` file.
+Any format string starting with `--` triggers `printf: --: invalid option` on bash builtins. The original code used:
 
 ```bash
-write_tree_to_file() {
-  local output_file="$1"
-  > "$output_file"
-  echo "--- 📁 Project Structure ---" >>"$output_file"
-  echo '' >>"$output_file"
-  echo "/" >>"$output_file"
-  generate_tree_structure "." "" >> "$output_file"
-}
+printf '--- Project Structure ---\n'  # ❌ breaks on some systems
 ```
 
-#### What the code does:
+The fix separates the format string from the data:
 
-- **Creates or clears the output file**: Ensures the output file starts empty.
-- **Writes the directory structure**: Appends the generated tree structure to the output file.
+```bash
+printf '%s\n' "--- Project Structure ---"  # ✅ always safe
+```
 
 ---
 
-### 6. **Main Execution**
+## `dotglob` and the double-entry bug
 
-The `main` function orchestrates the script's execution by calling the necessary functions based on the provided arguments.
+The original script used:
 
 ```bash
-main() {
-  local print_content=false
-  local DEBUG_MODE=false
-  local args=("$@")
+entries=("$dir"/* "$dir"/.*)
+```
 
-  # Process arguments
-  for arg in "${args[@]}"; do
-    case "$arg" in
-      "--print-content")
-        print_content=true
-        ;;
-      "--debug")
-        DEBUG_MODE=true
-        ;;
-      *)
-        echo "Unknown argument: $arg"
-        exit 1
-        ;;
-    esac
-  done
+With `shopt -s dotglob`, `"$dir"/*` already includes hidden entries. Adding `"$dir"/.*` then produces every dotfile twice in the array. The fix is to enable `dotglob` once at the top and use only `"$dir"/*`.
 
-  # Set the global DEBUG_MODE variable
-  export DEBUG_MODE
+---
 
-  load_ignore_patterns
-  write_tree_to_file "project_structure.txt"
+## Content-skip in output writers
 
-  if [[ "$print_content" == true ]]; then
-    generate_file_contents "project_structure.txt"
+Both `write_txt` and `write_md` check `is_content_skipped` alongside `is_binary_file`:
+
+````bash
+for f in "${collected_files[@]}"; do
+  if is_binary_file "$f"; then
+    printf '_Binary file - skipped._\n'
+  elif is_content_skipped "$f"; then
+    printf '_Skipped by --skip-content._\n'
+  else
+    lang="$(md_lang_for_file "$f")"
+    printf '```%s\n' "$lang"
+    cat "$f"
+    printf '\n```\n'
   fi
-}
+done
+````
 
-main "$@"
-```
-
-#### What the code does:
-
-- **Processes arguments**: Checks if the `--print-content` and `--debug` flags are provided.
-- **Sets Debug Mode**: The `DEBUG_MODE` variable is set based on the presence of the `--debug` flag and exported to be accessible by other functions.
-- **Loads exclusion patterns**: Reads patterns from `.gitignore` and `.generatetreeignore`.
-- **Generates and writes the tree structure**: Calls the functions to generate and save the directory tree.
-- **Appends file contents (optional)**: If the `--print-content` flag is enabled, appends the contents of each file to the output.
+The file still appears as a heading in the content section (e.g. `## 'pnpm-lock.yaml'`). This is intentional: the reader can see the file exists and know it was deliberately skipped, rather than wondering why it vanished from the content section without explanation.
 
 ---
 
-## New Functionality: Debug Mode
-
-The script now includes a debug mode that can be enabled using the `--debug` parameter. This mode provides detailed output about the script's execution, which can be helpful for understanding how the script is processing files and ignore patterns.
-
-### Enabling Debug Mode
-
-To enable debug mode, simply include the `--debug` parameter when running the script:
+## Sorting with `mapfile`
 
 ```bash
-./generate_tree.sh --debug
+(( ${#dirs[@]} > 0 )) && mapfile -t dirs < <(printf '%s\n' "${dirs[@]}" | sort)
 ```
 
-You can also combine it with other parameters:
+The original code used `IFS=$'\n' dirs=($(sort ...))` which breaks on filenames containing newlines and is harder to read. `mapfile -t` (bash 4+) reads lines into an array cleanly. The guard `(( ${#dirs[@]} > 0 ))` prevents running `mapfile` on an empty array, which would produce a spurious empty element — and also prevents `(( 0 ))` from exiting under `set -e`.
+
+---
+
+## CLI argument parsing
+
+The parser handles both `--flag value` and `--flag=value` forms for all options that take arguments:
 
 ```bash
-./generate_tree.sh --print-content --debug
+--skip-content)
+  content_skip_patterns+=("$2"); shift ;;
+--skip-content=*)
+  content_skip_patterns+=("${1#*=}") ;;
 ```
 
-### Debug Output
+`--skip-content` can be passed multiple times and each value is appended to `content_skip_patterns`. Patterns supplied via CLI are merged with those loaded from `.contentignore` — they are additive.
 
-When debug mode is enabled, the script will print the following information to the console:
+---
 
-- **Loaded ignore patterns**: Displays the list of patterns loaded from `.gitignore` and `.generatetreeignore`.
-- **File exclusion checks**: Shows each file and directory being checked against the ignore patterns, and whether it is being ignored or not.
-- **Pattern matching**: Indicates which specific ignore pattern matched a given file or directory, if a match occurs.
+## Known limitations
 
-### `DEBUG_MODE` Variable and `debug_echo` Function
+- **Gitignore spec compliance:** Negation (`!important.log`), directory-anchored patterns (`/build`), and `**` globbing are not supported.
+- **Bash 4+ required:** `${var,,}` (lowercase) and `mapfile` both require bash 4. macOS ships bash 3.2 by default — install via `brew install bash`.
+- **Symlinks:** Followed for the `-e` existence check, not specially annotated in the tree.
+- **Non-UTF-8 filenames:** Tree renders correctly but terminal output may be garbled.
 
-- **`DEBUG_MODE`**: This global variable (set in the `main` function based on the `--debug` argument) controls whether debug messages are displayed.
-- **`debug_echo()`**: This helper function is used throughout the script to print debug messages. It only outputs its arguments if the `DEBUG_MODE` variable is set to `true`.
+---
+
+## Extending the script
+
+### Adding a new output format (e.g. JSON)
+
+1. Add a `write_json` function mirroring `write_txt` / `write_md`.
+2. Add `--json` to the `case` block in `main`.
+3. Add `DEFAULT_JSON_OUTPUT` to constants and extend the filename resolution block.
+
+`generate_tree_structure` outputs to stdout and populates `collected_files` regardless of format, so both are immediately available to any new writer.
+
+### Full gitignore compliance
+
+Replace `is_ignored` with:
 
 ```bash
-# Global variable for debug mode
-DEBUG_MODE=false
-
-# Function to echo debug messages only when DEBUG_MODE is true
-debug_echo() {
-  if [[ "$DEBUG_MODE" == true ]]; then
-    echo "$@"
-  fi
+is_ignored() {
+  git check-ignore -q "$1" 2>/dev/null
 }
 ```
 
-By using this structure, debug messages can be easily added or removed from the script by simply calling `debug_echo` instead of `echo` directly.
-
-This new functionality provides developers with a valuable tool for understanding and troubleshooting the script's behavior.
+This delegates matching to Git itself and handles every edge case. Trade-offs: requires a Git repository and is significantly slower on large trees because it spawns a process per file.

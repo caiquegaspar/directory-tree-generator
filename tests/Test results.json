@@ -1,0 +1,53 @@
+{
+  "suite": "generate_tree.sh integration tests",
+  "version": "1.1.0",
+  "date": "2025-04-08",
+  "environment": {
+    "shell": "bash",
+    "min_bash_version": "4.0"
+  },
+  "tests": [
+    {
+      "id": "T01",
+      "command": "./generate_tree.sh",
+      "description": "Default plain-text output. Verifies .contentignore and .generatetreeignore are loaded from project root.",
+      "expected": "project_structure.txt created. Files listed in .generatetreeignore absent from tree. Files listed in .contentignore present in tree.",
+      "status": "pass"
+    },
+    {
+      "id": "T02",
+      "command": "./generate_tree.sh --md",
+      "description": "Markdown output without file contents.",
+      "expected": "project_structure.md created. Tree wrapped in fenced code block.",
+      "status": "pass"
+    },
+    {
+      "id": "T03",
+      "command": "./generate_tree.sh --md --print-content",
+      "description": "Markdown output with file contents. Binary files and .contentignore entries must be suppressed.",
+      "expected": "Each non-ignored, non-binary file rendered with syntax-highlighted fenced block. Binary files show '_Binary file - skipped._'.",
+      "status": "pass"
+    },
+    {
+      "id": "T04",
+      "command": "./generate_tree.sh --max-depth 3",
+      "description": "Tree depth limited to 3 levels. Directories beyond depth 3 must not be expanded.",
+      "expected": "depth4file.txt absent from output. depth3file.txt present.",
+      "status": "pass"
+    },
+    {
+      "id": "T05",
+      "command": "./generate_tree.sh --md -o test_folder/generated_with_-o_param.md",
+      "description": "Custom output path via -o. Output file must not appear in the tree.",
+      "expected": "File written to test_folder/generated_with_-o_param.md. File excluded from tree automatically.",
+      "status": "pass"
+    },
+    {
+      "id": "T06",
+      "command": "./generate_tree.sh --md --print-content --skip-content \"project_structure.txt\"",
+      "description": "CLI-level content skip via --skip-content. Target file must appear in tree but show skip notice in content section.",
+      "expected": "project_structure.txt present in tree. Content section shows '_Skipped by --skip-content._'.",
+      "status": "pass"
+    }
+  ]
+}

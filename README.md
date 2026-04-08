@@ -1,190 +1,182 @@
 # Directory Tree Generator
 
-This is a Bash script that generates a directory tree structure of a project, similar to the `tree` command, but with enhanced functionality. It respects files and directories listed in `.gitignore` and `.generatetreeignore`. The generated structure is saved in a file called `project_structure.txt`. Additionally, you can optionally include the contents of the listed files in the output and enable a debug mode for detailed script execution.
+A Bash script that generates a clean directory tree of your project — similar to the `tree` command, but with first-class `.gitignore` support and additional quality-of-life features. Output can be plain text or Markdown (great for dropping into a `docs/` folder or a wiki).
 
 ## Download
 
-You can download directly using the link below:
-
-- [Download File](https://github.com/caiquegaspar/directory-tree-generator/releases/download/v1.0.0/generate_tree.sh)
+```bash
+curl -LO https://github.com/caiquegaspar/directory-tree-generator/releases/download/v2.0.0/generate_tree.sh
+chmod +x generate_tree.sh
+```
 
 ## Features
 
-- **Ignores files and directories**: Respects patterns specified in `.gitignore` and `.generatetreeignore`.
-- **Custom ignore rules**: Allows additional exclusion rules via `.generatetreeignore`.
-- **Generates directory tree**: Creates a hierarchical directory structure.
-- **Output to file**: Saves the generated structure to `project_structure.txt`.
-- **File contents (optional)**: Includes the contents of each file in the directory structure with the `--print-content` parameter.
-- **Debug mode (optional)**: Provides detailed script execution messages using the `--debug` parameter.
+| Feature                  | Details                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| `.gitignore` aware       | Respects all patterns from `.gitignore` automatically                               |
+| Custom tree-ignore rules | Add extra exclusions in `.generatetreeignore`                                       |
+| Content-skip rules       | Files in `.contentignore` appear in the tree but are never printed                  |
+| Plain-text output        | Classic tree written to `project_structure.txt`                                     |
+| Markdown output          | Fenced code block tree + syntax-highlighted file contents in `project_structure.md` |
+| Binary file detection    | Skips images, archives, compiled files, fonts, etc. when printing content           |
+| Depth limit              | `--max-depth N` to avoid exploding on monorepos                                     |
+| Custom output path       | `-o path/to/file` sends output anywhere                                             |
+| Auto-exclusion           | The script itself and the output file never appear in the tree                      |
+| Debug mode               | `-d` streams pattern-matching detail to stderr                                      |
 
-## How to Use
+## Requirements
 
-### Prerequisites
+- Bash 4.0 or later (macOS ships Bash 3 — install a modern version via Homebrew: `brew install bash`)
+- Linux, macOS, or Git Bash on Windows
 
-- Bash environment (Linux, macOS, or Git Bash on Windows).
-- A `.gitignore` or `.generatetreeignore` file to define ignored files and directories (optional).
+## Usage
 
-### Steps
+```
+Usage: generate_tree.sh [OPTIONS]
 
-1. Place the `generate_tree.sh` script in the root directory of your project.
-2. Run the script:
+Options:
+  -o, --output FILE       Write output to FILE instead of the default name.
+                            Default for --txt : project_structure.txt
+                            Default for --md  : project_structure.md
+      --txt               Output as plain text (default).
+      --md                Output as Markdown with syntax-highlighted file content.
+      --print-content     Append file contents to the output.
+                          Binary files are detected and skipped automatically.
+      --skip-content PAT  Show files matching PAT in the tree but omit their
+                          content from --print-content. Can be repeated.
+                          Same glob syntax as .gitignore.
+                          E.g.: --skip-content "*.lock" --skip-content "*.json"
+      --max-depth N       Limit directory recursion to N levels (0 = unlimited).
+  -d, --debug             Print debug messages to stderr during execution.
+  -h, --help              Show this message and exit.
+```
 
-   ```bash
-   chmod +x generate_tree.sh
-
-   ./generate_tree.sh
-   ```
-
-3. The generated structure will be saved in `project_structure.txt`.
-
-   - To include file contents, use the `--print-content` argument:
-
-     ```bash
-     ./generate_tree.sh --print-content
-     ```
-
-   - To enable debug mode and see detailed script execution messages, use the `--debug` argument:
-
-     ```bash
-     ./generate_tree.sh --debug
-     ```
-
-   - You can combine both `--print-content` and `--debug` arguments. The order does not matter:
-
-     ```bash
-     ./generate_tree.sh --print-content --debug
-     ```
-
-     or
-
-     ```bash
-     ./generate_tree.sh --debug --print-content
-     ```
-
-### Using `.generatetreeignore`
-
-To add custom exclusions beyond `.gitignore`, create a `.generatetreeignore` file in the root of your project. The syntax is the same as `.gitignore`.
-
-#### Example `.generatetreeignore` File:
+### Quick start
 
 ```bash
-# Ignore all `.log` files
-*.log
-
-# Ignore specific folders
-temp/
+./generate_tree.sh                             # plain text → project_structure.txt
+./generate_tree.sh --md                        # Markdown   → project_structure.md
+./generate_tree.sh --md --print-content        # Markdown with file contents
+./generate_tree.sh --max-depth 3               # limit to 3 levels deep
+./generate_tree.sh --md -o docs/structure.md   # custom output path
+./generate_tree.sh --md --print-content --skip-content "*.lock"
 ```
 
-Patterns in `.generatetreeignore` will be processed in addition to `.gitignore`.
+---
 
-### Example Output
+## Ignore files
 
-#### Without `--print-content` and `--debug`
+The script reads three optional files from the project root, each with a distinct role:
 
-The `project_structure.txt` file will contain a directory structure similar to:
+| File                  | Effect                                                               |
+| --------------------- | -------------------------------------------------------------------- |
+| `.gitignore`          | Files and directories **excluded from the tree entirely**            |
+| `.generatetreeignore` | Same as above — extra patterns beyond `.gitignore`                   |
+| `.contentignore`      | Files **shown in the tree** but whose contents are **never printed** |
+
+### `.generatetreeignore`
+
+```gitignore
+# Skip build artifacts completely
+dist/
+build/
+*.min.js
+```
+
+### `.contentignore`
+
+This is the key distinction: files listed here are still visible in the tree (so you know they exist), but their contents are suppressed when using `--print-content`. This is ideal for lock files, large generated files, and anything too noisy to include in documentation.
+
+```gitignore
+# Lock files — visible in tree, content suppressed
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+Cargo.lock
+
+# Other large generated files
+*.snap
+```
+
+You can also skip content for specific patterns on the fly without creating a file:
+
+```bash
+./generate_tree.sh --md --print-content \
+  --skip-content "pnpm-lock.yaml" \
+  --skip-content "*.snap"
+```
+
+---
+
+## Output examples
+
+### Plain text (`--txt`)
 
 ```
---- 📁 Project Structure ---
+--- Project Structure ---
 
 /
 ├── .github/
 │   └── workflows/
-│       └── docker-image.yml
+│       └── ci.yml
 ├── docker/
-│   ├── Dockerfile
-│   └── start.sh
-├── prisma/
-│   ├── migrations/
-│   │   └── 0001_initial/
-│   │   │   └── migration.sql
-│   └── schema.prisma
-...
+│   └── Dockerfile
+├── src/
+│   ├── components/
+│   │   └── Button.jsx
+│   └── index.js
+├── .gitignore
+├── package.json
+└── pnpm-lock.yaml
 ```
 
-#### With `--print-content`
+### Markdown (`--md --print-content`)
 
-Running the script with `--print-content` will append the contents of each file listed in the structure:
+`pnpm-lock.yaml` is listed in the tree. In the File Contents section it shows as skipped:
+
+````markdown
+# Project Structure
 
 ```
---- 📁 Project Structure ---
-
 /
-├── .github/
-│   └── workflows/
-│       └── docker-image.yml
-├── docker/
-│   ├── Dockerfile
-│   └── start.sh
-├── prisma/
-│   ├── migrations/
-│   │   └── 0001_initial/
-│   │   │   └── migration.sql
-│   └── schema.prisma
-...
-
---- 📄 File Contents ---
-
---- File: .github/workflows/docker-image.yml ---
-
-name: Docker Image CI
-
-on:
-  push:
-    branches:
-      - "**"
-  pull_request:
-    branches:
-      - "**"
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker Image
-        run: docker buildx build --file docker/Dockerfile --tag my-project-image:${{ github.sha }} --tag my-project-image:latest --load .
+├── src/
+│   └── index.js
+├── package.json
+└── pnpm-lock.yaml
 ```
 
-#### With `--debug`
+---
 
-Running the script with `--debug` will output detailed messages about the script's execution in your terminal, such as loaded ignore patterns and file matching processes. This output will appear alongside the regular output unless redirected.
+# File Contents
 
-### How It Works
+## `src/index.js`
 
-1. **Loading Ignore Patterns**:
+```javascript
+const x = 1;
+export default x;
+```
 
-   - Loads exclusion patterns from `.gitignore` and `.generatetreeignore`.
-   - Combines patterns from both files for a unified exclusion list.
+## `package.json`
 
-2. **Exclusion Check**:
+```json
+{ "name": "myapp", "version": "1.0.0" }
+```
 
-   - Each file and directory is checked against the combined list of patterns to determine if it should be ignored.
+## `pnpm-lock.yaml`
 
-3. **Generating the Directory Tree**:
+_Skipped by --skip-content._
+````
 
-   - Recursively scans the directory structure to create a hierarchical tree.
+---
 
-4. **Saving the Output**:
+## Supported syntax highlighting
 
-   - The directory tree is saved in `project_structure.txt`.
-
-5. **Including File Contents (Optional)**:
-
-   - If `--print-content` is specified, the contents of non-ignored files are appended to the output.
-
-6. **Debug Mode (Optional)**:
-   - If `--debug` is specified, detailed messages about the script's execution are printed to the console.
+When using `--md --print-content`, the script automatically selects the correct language tag for: Bash, Python, JavaScript, TypeScript, JSX, JSON, YAML, TOML, HTML, CSS/SCSS, SQL, Go, Rust, Java, C/C++, Ruby, PHP, Swift, Kotlin, Dockerfile, XML, and HCL/Terraform. Unknown extensions get a plain fenced block.
 
 ## Contributing
 
-Contributions are welcome! Feel free to open an issue or submit a pull request.
+Contributions are welcome. Open an issue or submit a pull request.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE) for details.
